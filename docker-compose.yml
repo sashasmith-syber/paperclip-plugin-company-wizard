@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "4177:4177"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    command: pnpm dev:ui
+    restart: unless-stopped
+
+  # Optional: Add a simple health check service
+  healthcheck:
+    image: alpine:latest
+    depends_on:
+      - app
+    command: >
+      sh -c "
+        echo 'Checking app health...';
+        wget --no-verbose --tries=1 --spider http://app:4177 || exit 1;
+        echo 'App is healthy'
+      "
+    restart: "no"
