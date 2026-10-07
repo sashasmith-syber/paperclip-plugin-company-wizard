@@ -1,0 +1,131 @@
+name: Local CI Runner
+
+# This workflow can be run locally using act or similar tools
+# It mirrors the main CI but is designed for local execution
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check formatting
+        run: |
+          pnpm prettier --check . || {
+            echo "Formatting issues found. Run 'pnpm prettier --write .' to fix."
+            exit 1
+          }
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm test:logic
+
+  build:
+    name: Build Verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Verify build artifacts
+        run: |
+          test -f dist/manifest.js || { echo "manifest.js not found"; exit 1; }
+          test -f dist/worker.js || { echo "worker.js not found"; exit 1; }
+          test -d dist/ui || { echo "ui directory not found"; exit 1; }
+
+  security-scan:
+    name: Security Scan (Local)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Gitleaks
+        run: |
+          VERSION=$(curl -sI https://github.com/gitleaks/gitleaks/releases/latest | grep -i '^location:' | sed 's/.*tag\/v//' | tr -d '\r')
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" | tar xz
+          chmod +x gitleaks
+      - name: Run security scan
+        run: |
+          ./gitleaks detect --source . --verbose --no-banner
+
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Audit dependencies
+        run: pnpm audit --audit-level moderate
+      - name: Check for outdated packages
+        run: pnpm outdated || true  # Don't fail, just report
+
+  docker-build:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: |
+          docker build -t company-wizard:test .
+      - name: Test Docker image
+        run: |
+          docker run --rm company-wizard:test pnpm build
+          docker run --rm company-wizard:test test -f dist/manifest.js
